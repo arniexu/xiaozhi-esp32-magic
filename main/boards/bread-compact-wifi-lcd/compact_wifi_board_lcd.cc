@@ -17,6 +17,7 @@
 #include <esp_lcd_panel_io.h>
 #include <esp_lcd_panel_ops.h>
 #include <driver/spi_common.h>
+#include <driver/uart.h>
 
 #if defined(LCD_TYPE_ILI9341_SERIAL)
 #include "esp_lcd_ili9341.h"
@@ -69,6 +70,108 @@ private:
  
     Button boot_button_;
     LcdDisplay* display_;
+    // a variable to hold the current frame of uart sending
+    uint8_t current_frame_[12] = {0};
+    // a async timer that will be used to send the current frame
+    esp_timer_handle_t send_frame_timer_ = nullptr;
+    // initialize the timer for sending frame, every 100ms
+    void InitializeSendFrameTimer() {
+                esp_timer_create_args_t timer_args = {
+                    .callback = [](void* arg) {
+                        CompactWifiBoardLCD* board = static_cast<CompactWifiBoardLCD*>(arg);
+                        if (board->send_frame_timer_) {
+                            uart_write_bytes(UART_NUM_2, reinterpret_cast<const char*>(board->current_frame_), 12);
+                            ESP_LOGI(TAG, "SendMatrixKeyFrame: "
+                                "%02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X",
+                                board->current_frame_[0], board->current_frame_[1], board->current_frame_[2], board->current_frame_[3], board->current_frame_[4], board->current_frame_[5],
+                                board->current_frame_[6], board->current_frame_[7], board->current_frame_[8], board->current_frame_[9], board->current_frame_[10], board->current_frame_[11]);
+                            }
+                        },
+                    .arg = this,
+                    .dispatch_method = ESP_TIMER_TASK,
+                    .name = "SendFrameTimer"
+                };
+        ESP_ERROR_CHECK(esp_timer_create(&timer_args, &send_frame_timer_));
+        ESP_ERROR_CHECK(esp_timer_start_periodic(send_frame_timer_, 100 * 1000)); // 100ms
+    }
+    /** 
+     * @brief 发送一帧矩阵键盘协议数据到UART2
+     * 
+     * @param row_char   行标字符（如 'W', 'D', 'F', 'R'，如未用可填 0）
+     * @param col_char   列标字符（如 '1', '2', '3', '4'，如未用可填 0）
+     * @param dir_char   方向键标识（如 's', 'a', 'd', 'w'，如未用可填 0）
+     * @param beep      是否蜂鸣（true/false，true时第7字节为0x42，false为0x00）
+     * @note  其余协议内容固定，校验自动计算
+     */
+    void SendMatrixKeyFrame(char row_char, char col_char, char dir_char, bool beep = true) {
+        //把下面的frame替换成current_frame_
+        current_frame_[0] = 0x56; // 帧头 'V'
+        current_frame_[1] = 0x31; // 帧头 '1'
+        current_frame_[2] = 0x08; // 类型
+        current_frame_[3] = static_cast<uint8_t>(row_char); // 行标
+        current_frame_[4] = static_cast<uint8_t>(col_char); // 列标
+        current_frame_[5] = static_cast<uint8_t>(dir_char); // 方向键标识
+        current_frame_[6] = beep ? 0x42 : 0x00;             // 蜂鸣器选择字符
+        current_frame_[7] = 0x00;
+        current_frame_[8] = 0x00;
+        current_frame_[9] = 0x00;
+        current_frame_[10] = 0x00;
+        // 校验和：第3-11字节的和，取最低8位
+        uint8_t checksum = 0;
+        for (int i = 2; i <= 10; ++i) {
+            checksum += current_frame_[i];
+        }
+        current_frame_[11] = checksum;
+
+    }
+
+    /**
+     * @brief 发送默认空闲帧（无按键按下，协议内容固定）
+     */
+    void SendMatrixIdleFrame() {
+        // 默认帧内容：56 31 08 57 31 73 42 00 00 00 00 45
+        // 即 row='W', col='1', dir='s', beep=0x42
+        SendMatrixKeyFrame('W', '1', 's', true);
+    }
+
+    void forward() {
+        SendMatrixKeyFrame(0, 0, 'f', true);
+    }
+
+    void backward() {
+        SendMatrixKeyFrame('D', '1', 's', true);
+    }
+
+    void left() {
+        SendMatrixKeyFrame('F', '1', 's', true);
+    }
+
+    void right() {
+        SendMatrixKeyFrame('R', '1', 's', true);
+    }
+
+    // 串口初始化（如有需要可在构造函数或初始化流程中调用）
+    void InitializeUart() {
+        uart_config_t uart_config = {
+            .baud_rate = 38400,
+            .data_bits = UART_DATA_8_BITS,
+            .parity    = UART_PARITY_DISABLE,
+            .stop_bits = UART_STOP_BITS_1,
+            .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+            .source_clk = UART_SCLK_DEFAULT,
+        };
+        int intr_alloc_flags = 0;
+        ESP_ERROR_CHECK(uart_driver_install(UART_NUM_2, 1024 * 2, 0, 0, NULL, intr_alloc_flags));
+        ESP_ERROR_CHECK(uart_param_config(UART_NUM_2, &uart_config));
+        ESP_ERROR_CHECK(uart_set_pin(UART_NUM_2, GPIO_NUM_17, GPIO_NUM_16, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE)); // TX=17, RX=16
+    }
+
+    // 串口发送字符串
+    void SendUartMessage(const char * command_str) {
+        uint8_t len = strlen(command_str);
+        uart_write_bytes(UART_NUM_2, command_str, len);
+        ESP_LOGI(TAG, "Sent command: %s", command_str);
+    }
 
     void InitializeSpi() {
         spi_bus_config_t buscfg = {};
@@ -149,6 +252,45 @@ private:
         });
     }
 
+   // MCP工具初始化，添加前进/后退/左转/右转
+    void InitializeTools() {
+#if CONFIG_IOT_PROTOCOL_MCP
+        auto& mcp_server = McpServer::GetInstance();
+        mcp_server.AddTool("self.motion.forward",
+            "Move the robot forward.",
+            PropertyList(), [this](const PropertyList&) {
+                ESP_LOGI(TAG, "MCP Tool: Forward");
+                // TODO: Add hardware control code here
+                this->forward();
+                return true;
+            });
+        mcp_server.AddTool("self.motion.backward",
+            "Move the robot backward.",
+            PropertyList(), [this](const PropertyList&) {
+                ESP_LOGI(TAG, "MCP Tool: Backward");
+                // TODO: Add hardware control code here
+                this->backward();
+                return true;
+            });
+        mcp_server.AddTool("self.motion.turn_left",
+            "Turn the robot left.",
+            PropertyList(), [this](const PropertyList&) {
+                ESP_LOGI(TAG, "MCP Tool: Turn Left");
+                // TODO: Add hardware control code here
+                this->left();
+                return true;
+            });
+        mcp_server.AddTool("self.motion.turn_right",
+            "Turn the robot right.",
+            PropertyList(), [this](const PropertyList&) {
+                ESP_LOGI(TAG, "MCP Tool: Turn Right");
+                // TODO: Add hardware control code here
+                this->right();
+                return true;
+            });
+#endif
+    }
+
     // 物联网初始化，添加对 AI 可见设备
     void InitializeIot() {
 #if CONFIG_IOT_PROTOCOL_XIAOZHI
@@ -158,6 +300,8 @@ private:
         thing_manager.AddThing(iot::CreateThing("Lamp"));
 #elif CONFIG_IOT_PROTOCOL_MCP
         static LampController lamp(LAMP_GPIO);
+        // add a robot controller to control the robot through uart2
+
 #endif
     }
 
@@ -168,10 +312,13 @@ public:
         InitializeLcdDisplay();
         InitializeButtons();
         InitializeIot();
+        InitializeUart(); // 新增
+        InitializeTools(); // 新增
+        InitializeSendFrameTimer(); // 新增
         if (DISPLAY_BACKLIGHT_PIN != GPIO_NUM_NC) {
             GetBacklight()->RestoreBrightness();
         }
-        
+        SendMatrixIdleFrame(); // 发送默认空闲帧
     }
 
     virtual Led* GetLed() override {
