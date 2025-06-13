@@ -73,7 +73,7 @@ private:
     // a variable to hold the current frame of uart sending
     uint8_t current_frame_[12] = {0};
     // a variable to hold the position of the current key in matrix key frame
-    uint8_t current_matrix_key_[2] = {0};
+    uint8_t current_mode_[2] = {'w', '1'};
     // a async timer that will be used to send the current frame
     esp_timer_handle_t send_frame_timer_ = nullptr;
     // initialize the timer for sending frame, every 100ms
@@ -110,8 +110,12 @@ private:
         current_frame_[0] = 0x56; // 帧头 'V'
         current_frame_[1] = 0x31; // 帧头 '1'
         current_frame_[2] = 0x08; // 类型
-        current_frame_[3] = static_cast<uint8_t>(row_char); // 行标
-        current_frame_[4] = static_cast<uint8_t>(col_char); // 列标
+        if (dir_char == 's') {
+            current_mode_[0]= row_char;
+            current_mode_[1]= col_char;
+        }
+        current_frame_[3] = static_cast<uint8_t>(current_mode_[0]); // 行标
+        current_frame_[4] = static_cast<uint8_t>(current_mode_[1]); // 列标
         current_frame_[5] = static_cast<uint8_t>(dir_char); // 方向键标识me_
         current_frame_[6] = beep ? 0x42 : 0x00;             // 蜂鸣器选择字符
         current_frame_[7] = 0x00;
@@ -137,7 +141,30 @@ private:
     }
 
     void forward() {
-        SendMatrixKeyFrame(0, 0, 'f', true);
+        SendMatrixKeyFrame('w', '1', 'f', true);
+    }
+
+    void switchmode(int mode) {
+        switch(mode){
+            case 0: SendMatrixKeyFrame('w', '1', 's', true); break;
+            case 1: SendMatrixKeyFrame('w', '2', 's', true); break;
+            case 2: SendMatrixKeyFrame('w', '3', 's', true); break;
+            case 3: SendMatrixKeyFrame('w', '4', 's', true); break;
+            case 4: SendMatrixKeyFrame('D', '1', 's', true); break;
+            case 5: SendMatrixKeyFrame('D', '2', 's', true); break;
+            case 6: SendMatrixKeyFrame('D', '3', 's', true); break;
+            // help me with the rest 
+            case 7: SendMatrixKeyFrame('D', '4', 's', true); break;
+            case 8: SendMatrixKeyFrame('F', '1', 's', true); break;
+            case 9: SendMatrixKeyFrame('F', '2', 's', true); break;
+            case 10: SendMatrixKeyFrame('F', '3', 's', true); break;
+            case 11: SendMatrixKeyFrame('F', '4', 's', true); break;
+            // case 12: SendMatrixKeyFrame('R', '1', 's', true); break;
+            // case 13: SendMatrixKeyFrame('R', '2', 's', true); break;
+            // case 14: SendMatrixKeyFrame('R', '3', 's', true); break;
+            // case 15: SendMatrixKeyFrame('R', '4', 's', true); break;
+            default: break;
+        }
     }
 
     void backward() {
@@ -262,6 +289,17 @@ private:
     void InitializeTools() {
 #if CONFIG_IOT_PROTOCOL_MCP
         auto& mcp_server = McpServer::GetInstance();
+        // mcp tool has a argument that accepts 0-15
+        mcp_server.AddTool("Self.mode.change",
+            "Change the robot motion mode",
+            PropertyList({Property("mode", PropertyType::kPropertyTypeInteger, 0, 15)}),
+            [this](const PropertyList& args) {
+                int mode = args["mode"].value<int>();
+                ESP_LOGI(TAG, "MCP Tool: Change Mode to %d", mode);
+                // You can use 'mode' here to change the robot's mode as needed
+                this->switchmode(mode);
+                return true;
+            });
         mcp_server.AddTool("self.motion.forward",
             "Move the robot forward.",
             PropertyList(), [this](const PropertyList&) {
@@ -326,12 +364,13 @@ public:
         InitializeButtons();
         InitializeIot();
         InitializeUart(); // 新增
+        SendMatrixIdleFrame(); // 发送默认空闲帧
         InitializeTools(); // 新增
         InitializeSendFrameTimer(); // 新增
         if (DISPLAY_BACKLIGHT_PIN != GPIO_NUM_NC) {
             GetBacklight()->RestoreBrightness();
         }
-        SendMatrixIdleFrame(); // 发送默认空闲帧
+        // switchmode(0);
     }
 
     virtual Led* GetLed() override {
