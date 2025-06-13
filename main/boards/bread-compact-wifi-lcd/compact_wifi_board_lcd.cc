@@ -152,6 +152,10 @@ private:
         SendMatrixKeyFrame('R', '1', 'r', true);
     }
 
+    void stop() {
+        SendMatrixIdleFrame();
+    }
+
     // 串口初始化（如有需要可在构造函数或初始化流程中调用）
     void InitializeUart() {
         uart_config_t uart_config = {
@@ -288,6 +292,13 @@ private:
                 ESP_LOGI(TAG, "MCP Tool: Turn Right");
                 // TODO: Add hardware control code here
                 this->right();
+                return true;
+            });
+        mcp_server.AddTool("self.motion.stop",
+            "Stop the robot.",
+            PropertyList(), [this](const PropertyList&) {
+                ESP_LOGI(TAG, "MCP Tool: Stop");    
+                this->stop();
                 return true;
             });
 #endif
