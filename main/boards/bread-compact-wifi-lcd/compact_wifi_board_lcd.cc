@@ -94,7 +94,7 @@ private:
                     .name = "SendFrameTimer"
                 };
         ESP_ERROR_CHECK(esp_timer_create(&timer_args, &send_frame_timer_));
-        ESP_ERROR_CHECK(esp_timer_start_periodic(send_frame_timer_, 100 * 1000)); // 100ms
+        ESP_ERROR_CHECK(esp_timer_start_periodic(send_frame_timer_, 300 * 1000)); // 100ms
     }
     /** 
      * @brief 发送一帧矩阵键盘协议数据到UART2
@@ -109,22 +109,18 @@ private:
         //把下面的frame替换成current_frame_
         current_frame_[0] = 0x56; // 帧头 'V'
         current_frame_[1] = 0x31; // 帧头 '1'
-        current_frame_[2] = 0x08; // 类型
-        if (dir_char == 's') {
-            current_mode_[0]= row_char;
-            current_mode_[1]= col_char;
-        }
-        current_frame_[3] = static_cast<uint8_t>(current_mode_[0]); // 行标
-        current_frame_[4] = static_cast<uint8_t>(current_mode_[1]); // 列标
+        current_frame_[2] = 0x8; // 类型
+        current_frame_[3] = static_cast<uint8_t>(row_char); // 行标
+        current_frame_[4] = static_cast<uint8_t>(col_char); // 列标
         current_frame_[5] = static_cast<uint8_t>(dir_char); // 方向键标识me_
         current_frame_[6] = beep ? 0x42 : 0x00;             // 蜂鸣器选择字符
         current_frame_[7] = 0x00;
         current_frame_[8] = 0x00;
         current_frame_[9] = 0x00;
         current_frame_[10] = 0x00;
-        // 校验和：第3-11字节的和，取最低8位
+        // 校验和：第4-11字节的和，取最低8位
         uint8_t checksum = 0;
-        for (int i = 2; i <= 10; ++i) {
+        for (int i = 3; i <= 10; ++i) {
             checksum += current_frame_[i];
         }
         current_frame_[11] = checksum;
@@ -141,15 +137,24 @@ private:
     }
 
     void forward() {
-        SendMatrixKeyFrame('w', '1', 'f', true);
+        SendMatrixKeyFrame('W', '1', 'f', true);
     }
 
+    // D  dance mode
+    // Y dance 2 mode 
+    // w walke mode
+    // F fight mode
+    // Z fight 2 mode
+    // R record mode
+    // L leg mode
+    // T trim mode
+    // G gait mode
     void switchmode(int mode) {
         switch(mode){
-            case 0: SendMatrixKeyFrame('w', '1', 's', true); break;
-            case 1: SendMatrixKeyFrame('w', '2', 's', true); break;
-            case 2: SendMatrixKeyFrame('w', '3', 's', true); break;
-            case 3: SendMatrixKeyFrame('w', '4', 's', true); break;
+            case 0: SendMatrixKeyFrame('W', '1', 's', true); break;
+            case 1: SendMatrixKeyFrame('W', '2', 's', true); break;
+            case 2: SendMatrixKeyFrame('W', '3', 's', true); break;
+            case 3: SendMatrixKeyFrame('W', '4', 's', true); break;
             case 4: SendMatrixKeyFrame('D', '1', 's', true); break;
             case 5: SendMatrixKeyFrame('D', '2', 's', true); break;
             case 6: SendMatrixKeyFrame('D', '3', 's', true); break;
@@ -167,16 +172,67 @@ private:
         }
     }
 
+    // type is balley, finger, dab, wave
+    // duration is in seconds
+    void dance(char *type, int duration) {
+        // 发送舞蹈指令
+        // 这里假设 type 是一个字符数组，包含舞蹈类型
+        // duration 是舞蹈持续时间，单位为秒
+        // 例如：type = "balley", duration = 5
+        // 启动一个新的局部一次性的定时器，使用定时器每隔100ms发送跳舞指令
+        // 定时器时间到了销毁
+        if (duration <= 0) {
+            ESP_LOGE(TAG, "Invalid duration for dance: %d seconds", duration);
+            return;
+        }
+        if (type == nullptr || strlen(type) == 0) {
+            ESP_LOGE(TAG, "Invalid dance type");
+            return;
+        }
+        // 不同舞蹈类型发送不同的控制帧
+        if ( strcmp(type,"dab") == 0 ) {
+            SendMatrixKeyFrame('D', '1', 'b', true); // 假设 'D' 是舞蹈类型
+        } else if (strcmp(type, "balley") == 0) {
+            SendMatrixKeyFrame('D', '2', 'f', true);
+        } else if (strcmp(type, "finger") == 0) {
+            SendMatrixKeyFrame('D', '3', 'd', true);
+        } else if (strcmp(type, "wave") == 0) {
+            SendMatrixKeyFrame('D', '4', 'w', true);
+        } else {
+            ESP_LOGE(TAG, "Unknown dance type: %s", type);
+            return;
+        }
+        // 创建一个一次性定时器，定时器到期后发送空闲帧
+        esp_timer_create_args_t timer_args = {
+            .callback = [](void* arg) {
+                CompactWifiBoardLCD* board = static_cast<CompactWifiBoardLCD*>(arg);
+                if (board == nullptr) {
+                    ESP_LOGE(TAG, "Dance timer callback received null board pointer");
+                    return;
+                }
+                board->SendMatrixIdleFrame(); // 发送空闲帧
+            },
+            .arg = this,
+            .dispatch_method = ESP_TIMER_TASK,
+            .name = "DanceTimer"
+        };
+        esp_timer_handle_t dance_timer;
+        ESP_ERROR_CHECK(esp_timer_create(&timer_args, &dance_timer));
+        ESP_ERROR_CHECK(esp_timer_start_once(dance_timer, duration * 1000*1000)); // 转换为微秒
+        ESP_LOGI(TAG, "Dance type: %s, duration: %d seconds", type, duration);
+        return;
+    }
+
     void backward() {
-        SendMatrixKeyFrame('D', '1', 'b', true);
+        SendMatrixKeyFrame('W', '1', 'b', true);
     }
 
     void left() {
-        SendMatrixKeyFrame('F', '1', 'l', true);
+        SendMatrixKeyFrame('W', '1', 'l', true);
     }
 
     void right() {
-        SendMatrixKeyFrame('R', '1', 'r', true);
+        SendMatrixKeyFrame('W', '1', 'r', true);
     }
 
     void stop() {
@@ -186,7 +242,7 @@ private:
     // 串口初始化（如有需要可在构造函数或初始化流程中调用）
     void InitializeUart() {
         uart_config_t uart_config = {
-            .baud_rate = 38400,
+            .baud_rate = 9600,
             .data_bits = UART_DATA_8_BITS,
             .parity    = UART_PARITY_DISABLE,
             .stop_bits = UART_STOP_BITS_1,
@@ -338,6 +394,22 @@ private:
                 ESP_LOGI(TAG, "MCP Tool: Stop");    
                 this->stop();
                 return true;
+            });
+        // 添加一个工具来做跳舞动作，支持四种跳舞动作，芭蕾，波浪，手指，dab
+        // 该方法有两个参数，舞蹈种类和时间
+        // 使用定时器定时发送跳舞动作
+        mcp_server.AddTool("self.motion.dance",
+            "Make the robot dance.",
+            PropertyList({
+            Property("dance_type", PropertyType::kPropertyTypeString),
+            Property("duration", PropertyType::kPropertyTypeInteger, 5000, 1000, 30000)
+            }),
+            [this](const PropertyList& args) {
+            std::string dance_type = args["dance_type"].value<std::string>();
+            int duration = args["duration"].value<int>();
+            ESP_LOGI(TAG, "MCP Tool: Dance Type: %s, Duration: %d ms", dance_type.c_str(), duration);
+            this->dance(const_cast<char*>(dance_type.c_str()), duration);
+            return true;
             });
 #endif
     }
