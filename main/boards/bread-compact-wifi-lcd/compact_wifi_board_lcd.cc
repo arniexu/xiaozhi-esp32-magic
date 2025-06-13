@@ -72,6 +72,8 @@ private:
     LcdDisplay* display_;
     // a variable to hold the current frame of uart sending
     uint8_t current_frame_[12] = {0};
+    // a variable to hold the position of the current key in matrix key frame
+    uint8_t current_matrix_key_[2] = {0};
     // a async timer that will be used to send the current frame
     esp_timer_handle_t send_frame_timer_ = nullptr;
     // initialize the timer for sending frame, every 100ms
@@ -80,7 +82,7 @@ private:
                     .callback = [](void* arg) {
                         CompactWifiBoardLCD* board = static_cast<CompactWifiBoardLCD*>(arg);
                         if (board->send_frame_timer_) {
-                            uart_write_bytes(UART_NUM_2, reinterpret_cast<const char*>(board->current_frame_), 12);
+                            uart_write_bytes(UART_NUM_1, reinterpret_cast<const char*>(board->current_frame_), 12);
                             ESP_LOGI(TAG, "SendMatrixKeyFrame: "
                                 "%02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X",
                                 board->current_frame_[0], board->current_frame_[1], board->current_frame_[2], board->current_frame_[3], board->current_frame_[4], board->current_frame_[5],
@@ -110,7 +112,7 @@ private:
         current_frame_[2] = 0x08; // 类型
         current_frame_[3] = static_cast<uint8_t>(row_char); // 行标
         current_frame_[4] = static_cast<uint8_t>(col_char); // 列标
-        current_frame_[5] = static_cast<uint8_t>(dir_char); // 方向键标识
+        current_frame_[5] = static_cast<uint8_t>(dir_char); // 方向键标识me_
         current_frame_[6] = beep ? 0x42 : 0x00;             // 蜂鸣器选择字符
         current_frame_[7] = 0x00;
         current_frame_[8] = 0x00;
@@ -139,15 +141,15 @@ private:
     }
 
     void backward() {
-        SendMatrixKeyFrame('D', '1', 's', true);
+        SendMatrixKeyFrame('D', '1', 'b', true);
     }
 
     void left() {
-        SendMatrixKeyFrame('F', '1', 's', true);
+        SendMatrixKeyFrame('F', '1', 'l', true);
     }
 
     void right() {
-        SendMatrixKeyFrame('R', '1', 's', true);
+        SendMatrixKeyFrame('R', '1', 'r', true);
     }
 
     // 串口初始化（如有需要可在构造函数或初始化流程中调用）
@@ -161,15 +163,15 @@ private:
             .source_clk = UART_SCLK_DEFAULT,
         };
         int intr_alloc_flags = 0;
-        ESP_ERROR_CHECK(uart_driver_install(UART_NUM_2, 1024 * 2, 0, 0, NULL, intr_alloc_flags));
-        ESP_ERROR_CHECK(uart_param_config(UART_NUM_2, &uart_config));
-        ESP_ERROR_CHECK(uart_set_pin(UART_NUM_2, GPIO_NUM_17, GPIO_NUM_16, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE)); // TX=17, RX=16
+        ESP_ERROR_CHECK(uart_driver_install(UART_NUM_1, 1024 * 2, 0, 0, NULL, intr_alloc_flags));
+        ESP_ERROR_CHECK(uart_param_config(UART_NUM_1, &uart_config));
+        ESP_ERROR_CHECK(uart_set_pin(UART_NUM_1, GPIO_NUM_38, GPIO_NUM_48, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE)); // TX=17, RX=16
     }
 
     // 串口发送字符串
     void SendUartMessage(const char * command_str) {
         uint8_t len = strlen(command_str);
-        uart_write_bytes(UART_NUM_2, command_str, len);
+        uart_write_bytes(UART_NUM_1, command_str, len);
         ESP_LOGI(TAG, "Sent command: %s", command_str);
     }
 
