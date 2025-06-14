@@ -164,10 +164,35 @@ private:
             case 9: SendMatrixKeyFrame('F', '2', 's', true); break;
             case 10: SendMatrixKeyFrame('F', '3', 's', true); break;
             case 11: SendMatrixKeyFrame('F', '4', 's', true); break;
-            // case 12: SendMatrixKeyFrame('R', '1', 's', true); break;
-            // case 13: SendMatrixKeyFrame('R', '2', 's', true); break;
-            // case 14: SendMatrixKeyFrame('R', '3', 's', true); break;
-            // case 15: SendMatrixKeyFrame('R', '4', 's', true); break;
+            case 12: SendMatrixKeyFrame('R', '1', 's', true); break;
+            case 13: SendMatrixKeyFrame('R', '2', 's', true); break;
+            case 14: SendMatrixKeyFrame('R', '3', 's', true); break;
+            case 15: SendMatrixKeyFrame('R', '4', 's', true); break;
+            // case 16-19 , 行标是X，列标依次是1-4
+            case 16: SendMatrixKeyFrame('X', '1', 's', true); break;
+            case 17: SendMatrixKeyFrame('X', '2', 's', true); break;
+            case 18: SendMatrixKeyFrame('X', '3', 's', true); break;
+            case 19: SendMatrixKeyFrame('X', '4', 's', true); break;
+            // case 20-23 , 行标是Y，列标依次是1-4
+            case 20: SendMatrixKeyFrame('Y', '1', 's', true); break;
+            case 21: SendMatrixKeyFrame('Y', '2', 's', true); break;
+            case 22: SendMatrixKeyFrame('Y', '3', 's', true); break;
+            case 23: SendMatrixKeyFrame('Y', '4', 's', true); break;
+            // case 24-27 , 行标是Z，列标依次是1-4
+            case 24: SendMatrixKeyFrame('Z', '1', 's', true); break;
+            case 25: SendMatrixKeyFrame('Z', '2', 's', true); break;
+            case 26: SendMatrixKeyFrame('Z', '3', 's', true); break;
+            case 27: SendMatrixKeyFrame('Z', '4', 's', true); break;
+            // case 28-31 , 行标是L，列标依次是1-4
+            case 28: SendMatrixKeyFrame('L', '1', 's', true); break;
+            case 29: SendMatrixKeyFrame('L', '2', 's', true); break;
+            case 30: SendMatrixKeyFrame('L', '3', 's', true); break;
+            case 31: SendMatrixKeyFrame('L', '4', 's', true); break;
+            // case 32-35 , 行标是T，列标依次是1-4
+            case 32: SendMatrixKeyFrame('T', '1', 's', true); break;
+            case 33: SendMatrixKeyFrame('T', '2', 's', true); break;
+            case 34: SendMatrixKeyFrame('T', '3', 's', true); break;
+            case 35: SendMatrixKeyFrame('T', '4', 's', true); break;
             default: break;
         }
     }
@@ -242,7 +267,7 @@ private:
     // 串口初始化（如有需要可在构造函数或初始化流程中调用）
     void InitializeUart() {
         uart_config_t uart_config = {
-            .baud_rate = 9600,
+            .baud_rate = 38400,
             .data_bits = UART_DATA_8_BITS,
             .parity    = UART_PARITY_DISABLE,
             .stop_bits = UART_STOP_BITS_1,
@@ -317,16 +342,16 @@ private:
         panel_config.vendor_config = &gc9107_vendor_config;
 #endif
         display_ = new SpiLcdDisplay(panel_io, panel,
-                                    DISPLAY_WIDTH, DISPLAY_HEIGHT, DISPLAY_OFFSET_X, DISPLAY_OFFSET_Y, DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y, DISPLAY_SWAP_XY,
-                                    {
-                                        .text_font = &font_puhui_16_4,
-                                        .icon_font = &font_awesome_16_4,
-#if CONFIG_USE_WECHAT_MESSAGE_STYLE
-                                        .emoji_font = font_emoji_32_init(),
-#else
-                                        .emoji_font = DISPLAY_HEIGHT >= 240 ? font_emoji_64_init() : font_emoji_32_init(),
-#endif
-                                    });
+        DISPLAY_WIDTH, DISPLAY_HEIGHT, DISPLAY_OFFSET_X, DISPLAY_OFFSET_Y, DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y, DISPLAY_SWAP_XY,
+        {
+            .text_font = &font_puhui_16_4,
+            .icon_font = &font_awesome_16_4,
+    #if CONFIG_USE_WECHAT_MESSAGE_STYLE
+            .emoji_font = font_emoji_32_init(),
+    #else
+            .emoji_font = DISPLAY_HEIGHT >= 240 ? font_emoji_64_init() : font_emoji_32_init(),
+    #endif
+        });
     }
 
 
@@ -347,8 +372,8 @@ private:
         auto& mcp_server = McpServer::GetInstance();
         // mcp tool has a argument that accepts 0-15
         mcp_server.AddTool("Self.mode.change",
-            "Change the robot motion mode",
-            PropertyList({Property("mode", PropertyType::kPropertyTypeInteger, 0, 15)}),
+            "Change the robot motion mode, minimum is 1, max is 35, mode 1-4, 16-19 is walking mode, 5-8 is fighting mode, 9-12 is dance mode, 13-15 is record mode.",   
+            PropertyList({Property("mode", PropertyType::kPropertyTypeInteger, 0, 35)}),
             [this](const PropertyList& args) {
                 int mode = args["mode"].value<int>();
                 ESP_LOGI(TAG, "MCP Tool: Change Mode to %d", mode);
@@ -395,6 +420,9 @@ private:
                 this->stop();
                 return true;
             });
+
+        // 添加一个工具来支持站立动作
+
         // 添加一个工具来做跳舞动作，支持四种跳舞动作，芭蕾，波浪，手指，dab
         // 该方法有两个参数，舞蹈种类和时间
         // 使用定时器定时发送跳舞动作
