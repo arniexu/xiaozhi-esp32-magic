@@ -120,7 +120,7 @@ private:
         current_frame_[10] = 0x00;
         // 校验和：第4-11字节的和，取最低8位
         uint8_t checksum = 0;
-        for (int i = 3; i <= 10; ++i) {
+        for (int i = 2; i <= 10; ++i) {
             checksum += current_frame_[i];
         }
         current_frame_[11] = checksum;

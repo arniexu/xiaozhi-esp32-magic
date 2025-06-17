@@ -18,7 +18,7 @@ K10AudioCodec::K10AudioCodec(void* i2c_master_handle, int input_sample_rate, int
 
     CreateDuplexChannels(mclk, bclk, ws, dout, din);
 
-    // Do initialize of related interface: data_if, ctrl_if and gpio_if
+    // Do initialize of related inter: data_if, ctrl_if and gpio_if
     audio_codec_i2s_cfg_t i2s_cfg = {
         .port = I2S_NUM_0,
         .rx_handle = rx_handle_,
